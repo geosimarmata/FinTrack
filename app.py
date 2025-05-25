@@ -94,45 +94,32 @@ if page == "Dashboard":
         </div>
         """, unsafe_allow_html=True)
 
-    st.markdown("### 📊 Profit & ROI Charts")
+    # 📊 Profit Trend Toggle
+    st.markdown("### 📊 Profit Trend Overview")
+    trend_view = st.radio("View By", ["Monthly", "Daily"], horizontal=True)
 
-    col_left, col_right = st.columns(2)
+    df_profit = df[df["Type"] == "profit"].copy()
+    if trend_view == "Monthly":
+        df_profit["Period"] = df_profit["Date"].dt.to_period("M").astype(str)
+    else:
+        df_profit["Period"] = df_profit["Date"].dt.date.astype(str)
 
-    with col_left:
-        st.markdown("#### 📊 Monthly Profit Trend")
-        monthly = df[df["Type"] == "profit"].copy()
-        monthly["Month"] = monthly["Date"].dt.to_period("M").astype(str)
-        monthly_summary = monthly.groupby("Month")["Amount"].sum().reset_index()
+    trend_data = df_profit.groupby("Period")["Amount"].sum().reset_index()
 
-        if not monthly_summary.empty:
-            chart_monthly = alt.Chart(monthly_summary).mark_bar(color="#22C55E").encode(
-                x="Month", y="Amount"
-            )
-            st.altair_chart(chart_monthly, use_container_width=True)
-        else:
-            st.info("No monthly profit data yet.")
+    if not trend_data.empty:
+        chart = alt.Chart(trend_data).mark_bar(color="#22C55E").encode(
+            x=alt.X("Period", title="Date/Month"),
+            y=alt.Y("Amount", title="Profit (Rp)"),
+            tooltip=["Period", "Amount"]
+        )
+        st.altair_chart(chart, use_container_width=True)
+    else:
+        st.info("No profit data available to show trend.")
 
-    with col_right:
-        st.markdown("#### 📈 ROI Over Time")
-        df["CumulativeTopUp"] = df[df["Type"] == "topup"]["Amount"].cumsum()
-        df["CumulativeProfit"] = df[df["Type"] == "profit"]["Amount"].cumsum()
-        roi_df = df.dropna(subset=["Date"])
-        roi_df["ROI"] = (roi_df["CumulativeProfit"] / roi_df["CumulativeTopUp"]) * 100
-        roi_df = roi_df.dropna()
-
-        if not roi_df.empty:
-            roi_chart = alt.Chart(roi_df).mark_line(color="#3B82F6").encode(
-                x="Date:T", y=alt.Y("ROI", title="ROI (%)")
-            )
-            st.altair_chart(roi_chart, use_container_width=True)
-        else:
-            st.info("ROI chart requires at least one profit and top-up entry with valid dates.")
-
-    # Goal forecast
+    # ⏱️ Forecast goal
     if profit > 0:
         avg_daily = profit / df["Date"].nunique()
-        goal = 100_000_000
-        remaining = goal - balance
+        remaining = 100_000_000 - balance
         days_left = int(remaining / avg_daily) if avg_daily else 0
         goal_date = pd.Timestamp.now() + pd.Timedelta(days=days_left)
         st.info(f"⏱️ Estimated time to reach goal: {days_left} days → {goal_date.strftime('%Y-%m-%d')}")
