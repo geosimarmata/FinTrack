@@ -5,50 +5,33 @@ import requests  # ✅ Needed to send data to Google Sheets
 
 # ------------------ 🔗 SET YOUR GOOGLE SCRIPT WEB APP URL BELOW ------------------
 GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyr7nTidmbFtuWa7b412vEEMuJQaof1f8umAZkaLmBDpQAIrz1uIdlgKe6uzfhotE-Q/exec"
-# 👆 Replace the URL above with your real Apps Script Web App link
 
-# ------------------ Config ------------------
+CSV_SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSWLTFCj9XO6pItPCVy4IMRonsVHntlyUEqjE1ywTVvVibV5ezoLs3h7bYkUqWmBjj1LkYbixwVsncA/pub?gid=0&single=true&output=csv"
+
+# ------------------ STYLE & CONFIG ------------------
 st.set_page_config(page_title="FinTrack Pro", layout="wide")
 st.markdown("""
     <style>
-        body {
-            background-color: #0f172a;
-            color: #f9fafb;
-        }
+        body { background-color: #0f172a; color: #f9fafb; }
         .big-card {
             background-color: #1e293b;
-            padding: 20px;
-            border-radius: 12px;
+            padding: 20px; border-radius: 12px;
             box-shadow: 0 0 10px rgba(0,0,0,0.2);
-            color: #f9fafb;
             margin-bottom: 20px;
         }
-        .metric-value {
-            font-size: 28px;
-            font-weight: bold;
-        }
+        .metric-value { font-size: 28px; font-weight: bold; }
         .positive { color: #22C55E; }
         .negative { color: #ef4444; }
-        .section-title {
-            font-size: 20px;
-            font-weight: bold;
-            margin-top: 10px;
-        }
+        .section-title { font-size: 20px; font-weight: bold; margin-top: 10px; }
     </style>
 """, unsafe_allow_html=True)
 
-# ------------------ Sidebar ------------------
-st.sidebar.markdown("## 📊 FinTrack Pro")
-page = st.sidebar.radio("Navigate", [
-    "Dashboard", "Earnings Simulator", "Transactions", "Goal Tracker", "Settings"
-])
-
-# ------------------ Helpers ------------------
+# ------------------ FUNCTIONS ------------------
 def format_rp(x):
     return f"Rp {x:,.0f}".replace(",", ".")
 
 def simulate_growth(monthly_topup, daily_rate, months):
-    days = months * 20  # 20 weekdays per month
+    days = months * 20
     balance = 0
     history = []
     for day in range(1, days + 1):
@@ -58,15 +41,29 @@ def simulate_growth(monthly_topup, daily_rate, months):
         history.append(balance)
     return history
 
-# ------------------ Dashboard ------------------
+@st.cache_data
+def load_google_sheet_csv():
+    try:
+        df = pd.read_csv(CSV_SHEET_URL)
+        return df
+    except Exception as e:
+        st.error(f"Error loading sheet: {e}")
+        return pd.DataFrame(columns=["Date", "Type", "Amount", "Note"])
+
+# ------------------ SIDEBAR ------------------
+st.sidebar.markdown("## 📊 FinTrack Pro")
+page = st.sidebar.radio("Navigate", [
+    "Dashboard", "Earnings Simulator", "Transactions", "Goal Tracker", "Settings"
+])
+
+# ------------------ DASHBOARD ------------------
 if page == "Dashboard":
     st.markdown("## 🧾 Dashboard Overview")
-
-    # For now still using session state as fallback
-    top_up = sum(t["amount"] for t in st.session_state.get("transactions", []) if t["type"] == "topup")
-    profit = sum(t["amount"] for t in st.session_state.get("transactions", []) if t["type"] == "profit")
+    df = load_google_sheet_csv()
+    top_up = df[df["Type"] == "topup"]["Amount"].sum()
+    profit = df[df["Type"] == "profit"]["Amount"].sum()
     balance = top_up + profit
-    roi = (profit / top_up * 100) if top_up > 0 else 0
+    roi = (profit / top_up * 100) if top_up else 0
 
     col1, col2, col3, col4 = st.columns(4)
     with col1:
@@ -76,7 +73,6 @@ if page == "Dashboard":
             <div class='metric-value'>{format_rp(top_up)}</div>
         </div>
         """, unsafe_allow_html=True)
-
     with col2:
         st.markdown(f"""
         <div class='big-card'>
@@ -85,7 +81,6 @@ if page == "Dashboard":
             <div class='positive'>+{roi:.1f}% ROI</div>
         </div>
         """, unsafe_allow_html=True)
-
     with col3:
         st.markdown(f"""
         <div class='big-card'>
@@ -93,7 +88,6 @@ if page == "Dashboard":
             <div class='metric-value'>{format_rp(balance)}</div>
         </div>
         """, unsafe_allow_html=True)
-
     with col4:
         st.markdown(f"""
         <div class='big-card'>
@@ -104,14 +98,14 @@ if page == "Dashboard":
 
     st.markdown("### 📊 Simulated Daily Growth")
     chart_data = simulate_growth(1_000_000, 1.0, 1)
-    df = pd.DataFrame({
+    sim_df = pd.DataFrame({
         "Day": list(range(1, len(chart_data)+1)),
         "Balance": chart_data
     })
-    chart = alt.Chart(df).mark_line(color="#22C55E").encode(x="Day", y="Balance")
+    chart = alt.Chart(sim_df).mark_line(color="#22C55E").encode(x="Day", y="Balance")
     st.altair_chart(chart, use_container_width=True)
 
-# ------------------ Simulator ------------------
+# ------------------ SIMULATOR ------------------
 elif page == "Earnings Simulator":
     st.markdown("## 🧠 Earnings Simulator")
     col1, col2, col3 = st.columns(3)
@@ -130,7 +124,7 @@ elif page == "Earnings Simulator":
     sim_chart = alt.Chart(sim_df).mark_area(opacity=0.7, color="#22C55E").encode(x="Day", y="Balance")
     st.altair_chart(sim_chart, use_container_width=True)
 
-# ------------------ Transactions ------------------
+# ------------------ TRANSACTIONS ------------------
 elif page == "Transactions":
     st.markdown("## 📑 Transaction History")
     with st.form("transaction_form"):
@@ -151,27 +145,31 @@ elif page == "Transactions":
                 if res.status_code == 200:
                     st.success("✅ Transaction saved to Google Sheets!")
                 else:
-                    st.error("❌ Failed to save to Google Sheets.")
+                    st.error("❌ Failed to save.")
             except Exception as e:
                 st.error(f"⚠️ Error: {e}")
 
-    st.markdown("### 📋 Recent Transactions")
-    st.info("📝 Showing local session data only. To display Google Sheet data, integration is required.")
+    df = load_google_sheet_csv()
+    if not df.empty:
+        df["Amount"] = df["Amount"].apply(format_rp)
+        st.markdown("### 📋 Recent Transactions")
+        st.dataframe(df[["Date", "Type", "Amount", "Note"]])
+    else:
+        st.info("📄 No transactions yet.")
 
-# ------------------ Goal Tracker ------------------
+# ------------------ GOAL TRACKER ------------------
 elif page == "Goal Tracker":
     st.markdown("## 🎯 Goal Tracker")
     goal = st.number_input("Your Target (Rp)", value=100_000_000, step=1000000)
-    top_up = sum(t["amount"] for t in st.session_state.get("transactions", []) if t["type"] == "topup")
-    profit = sum(t["amount"] for t in st.session_state.get("transactions", []) if t["type"] == "profit")
+    df = load_google_sheet_csv()
+    top_up = df[df["Type"] == "topup"]["Amount"].sum()
+    profit = df[df["Type"] == "profit"]["Amount"].sum()
     balance = top_up + profit
-    progress = (balance / goal * 100) if goal > 0 else 0
+    progress = (balance / goal * 100) if goal else 0
     st.metric("Progress", f"{progress:.1f}%", f"Balance: {format_rp(balance)}")
     st.progress(progress / 100)
 
-# ------------------ Settings ------------------
+# ------------------ SETTINGS ------------------
 elif page == "Settings":
     st.markdown("## ⚙️ Settings")
-    if st.button("🔁 Reset All Local Data"):
-        st.session_state["transactions"] = []
-        st.success("Local session data reset.")
+    st.warning("⚠️ Data is stored in Google Sheets. To reset, clear the sheet manually.")
