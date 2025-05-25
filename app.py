@@ -97,11 +97,18 @@ if page == "Dashboard":
 elif page == "Earnings Simulator":
     st.markdown("## 🧠 Earnings Simulator")
     strategy = st.radio("Choose Strategy", ["Conservative (0.5%)", "Balanced (1.0%)", "Aggressive (1.5%)"])
-    daily_rate = {"Conservative (0.5%)": 0.5, "Balanced (1.0%)": 1.0, "Aggressive (1.5%)"}[strategy]
+    
+    rate_map = {
+        "Conservative (0.5%)": 0.5,
+        "Balanced (1.0%)": 1.0,
+        "Aggressive (1.5%)": 1.5
+    }
+    daily_rate = rate_map[strategy]
 
     col1, col2 = st.columns(2)
     topup = col1.number_input("Monthly Top-Up (Rp)", value=1_000_000, step=100_000)
     duration = col2.slider("Duration (months)", 1, 60, 12)
+
     sim_result = simulate_growth(topup, daily_rate, duration)
     st.metric("📈 Final Balance", format_rp(sim_result[-1]))
     df_sim = pd.DataFrame({"Day": list(range(1, len(sim_result)+1)), "Balance": sim_result})
