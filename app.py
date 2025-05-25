@@ -54,44 +54,71 @@ page = st.sidebar.radio("Navigate", ["Dashboard", "Earnings Simulator", "Transac
 # ------------------ DASHBOARD ------------------
 if page == "Dashboard":
     st.markdown("## 🧾 Dashboard Overview")
+
+    # Load data
     df = load_google_sheet_csv()
-    df["Date"] = pd.to_datetime(df["Date"])
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+
+    # Financial summaries
     top_up = df[df["Type"] == "topup"]["Amount"].sum()
     profit = df[df["Type"] == "profit"]["Amount"].sum()
     withdraw = df[df["Type"] == "withdraw"]["Amount"].sum()
     balance = top_up + profit + withdraw
-    roi = (profit / top_up * 100) if top_up else 0
+    roi = (profit / top_up * 100) if top_up > 0 else 0
 
+    # KPI Cards
     col1, col2, col3, col4 = st.columns(4)
     col1.markdown(f"<div class='big-card'><div class='section-title'>💰 Total Top-Up</div><div class='metric-value'>{format_rp(top_up)}</div></div>", unsafe_allow_html=True)
     col2.markdown(f"<div class='big-card'><div class='section-title'>📈 Total Profit</div><div class='metric-value'>{format_rp(profit)}</div><div class='positive'>+{roi:.1f}% ROI</div></div>", unsafe_allow_html=True)
     col3.markdown(f"<div class='big-card'><div class='section-title'>💼 Current Balance</div><div class='metric-value'>{format_rp(balance)}</div></div>", unsafe_allow_html=True)
     col4.markdown(f"<div class='big-card'><div class='section-title'>🎯 Target Goal</div><div class='metric-value'>{format_rp(TARGET_GOAL)}</div></div>", unsafe_allow_html=True)
 
-    # ROI Chart
-    st.markdown("### 📊 ROI Over Time")
-    roi_df = df[df["Type"] == "profit"].copy()
-    roi_df["Cumulative Profit"] = roi_df["Amount"].cumsum()
-    roi_df["ROI (%)"] = (roi_df["Cumulative Profit"] / top_up * 100).fillna(0)
-    if not roi_df.empty:
-        chart = alt.Chart(roi_df).mark_line().encode(x="Date", y="ROI (%)")
-        st.altair_chart(chart, use_container_width=True)
-
-    # Profit alert
+    # Alerts
     if profit >= 5_000_000:
         st.success("🎉 You've reached over Rp 5.000.000 in profit!")
 
-    # Loss warning
     if abs(withdraw) > top_up * 0.2:
         st.error("⚠️ Withdrawal exceeds 20% of your top-up — risk warning.")
 
-    # Goal ETA
     daily_profits = df[df["Type"] == "profit"]
     daily_avg = profit / len(daily_profits) if not daily_profits.empty else 0
     if balance < TARGET_GOAL and daily_avg > 0:
         days_needed = (TARGET_GOAL - balance) / daily_avg
         eta = datetime.now() + timedelta(days=int(days_needed))
         st.info(f"⏱ Estimated time to reach goal: {int(days_needed)} days → {eta.strftime('%Y-%m-%d')}")
+
+    # Charts
+    st.markdown("### 📊 Investment Performance Overview")
+    col1, col2 = st.columns(2)
+
+    # 📊 LEFT: Monthly Profit Trend
+    with col1:
+        st.markdown("#### 💸 Monthly Profit Trend")
+        df["Month"] = df["Date"].dt.to_period("M").astype(str)
+        profit_df = df[df["Type"] == "profit"].groupby("Month")["Amount"].sum().reset_index()
+
+        if not profit_df.empty:
+            profit_chart = alt.Chart(profit_df).mark_bar(color="#3b82f6").encode(
+                x="Month", y="Amount"
+            )
+            st.altair_chart(profit_chart, use_container_width=True)
+        else:
+            st.info("No profit data yet to show trend.")
+
+    # 📈 RIGHT: ROI Over Time
+    with col2:
+        st.markdown("#### 📈 ROI Over Time")
+        roi_df = df[df["Type"] == "profit"].copy()
+        if not roi_df.empty and top_up > 0:
+            roi_df = roi_df.sort_values("Date")
+            roi_df["Cumulative Profit"] = roi_df["Amount"].cumsum()
+            roi_df["ROI (%)"] = (roi_df["Cumulative Profit"] / top_up * 100).fillna(0)
+            roi_chart = alt.Chart(roi_df).mark_line(color="#16a34a").encode(
+                x="Date:T", y="ROI (%)"
+            )
+            st.altair_chart(roi_chart, use_container_width=True)
+        else:
+            st.info("ROI will appear once profit data exists.")
 
 # ------------------ SIMULATOR ------------------
 elif page == "Earnings Simulator":
