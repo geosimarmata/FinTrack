@@ -41,14 +41,9 @@ def simulate_growth(monthly_topup, daily_rate, months):
         history.append(balance)
     return history
 
-@st.cache_data
+@st.cache_data(ttl=60)
 def load_google_sheet_csv():
-    try:
-        df = pd.read_csv(CSV_SHEET_URL)
-        return df
-    except Exception as e:
-        st.error(f"Error loading sheet: {e}")
-        return pd.DataFrame(columns=["Date", "Type", "Amount", "Note"])
+    return pd.read_csv(CSV_SHEET_URL)
 
 # ------------------ SIDEBAR ------------------
 st.sidebar.markdown("## 📊 FinTrack Pro")
@@ -144,6 +139,7 @@ elif page == "Transactions":
                 res = requests.post(GOOGLE_SCRIPT_URL, json=payload)
                 if res.status_code == 200:
                     st.success("✅ Transaction saved to Google Sheets!")
+                    load_google_sheet_csv.clear()  # 🔁 Refresh live data!
                 else:
                     st.error("❌ Failed to save.")
             except Exception as e:
@@ -172,4 +168,4 @@ elif page == "Goal Tracker":
 # ------------------ SETTINGS ------------------
 elif page == "Settings":
     st.markdown("## ⚙️ Settings")
-    st.warning("⚠️ Data is stored in Google Sheets. To reset, clear the sheet manually.")
+    st.warning("⚠️ Data is saved in Google Sheets. To reset, clear the sheet manually.")
