@@ -12,6 +12,8 @@ CSV_SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSWLTFCj9XO6pIt
 TARGET_GOAL = 100_000_000
 
 st.set_page_config(page_title="FinTrack Pro", layout="wide")
+
+# ------------------ STYLES ------------------
 st.markdown("""
     <style>
         body { background-color: #0f172a; color: #f9fafb; }
@@ -28,7 +30,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# ------------------ UTILS ------------------
+# ------------------ FUNCTIONS ------------------
 def format_rp(x): return f"Rp {x:,.0f}".replace(",", ".")
 
 @st.cache_data(ttl=60)
@@ -71,36 +73,38 @@ if page == "Dashboard":
     roi_df = df[df["Type"] == "profit"].copy()
     roi_df["Cumulative Profit"] = roi_df["Amount"].cumsum()
     roi_df["ROI (%)"] = (roi_df["Cumulative Profit"] / top_up * 100).fillna(0)
-    roi_chart = alt.Chart(roi_df).mark_line().encode(x="Date", y="ROI (%)")
-    st.altair_chart(roi_chart, use_container_width=True)
+    if not roi_df.empty:
+        chart = alt.Chart(roi_df).mark_line().encode(x="Date", y="ROI (%)")
+        st.altair_chart(chart, use_container_width=True)
 
-    # Loss Warning
-    if abs(withdraw) > top_up * 0.2:
-        st.error("⚠️ High withdrawal detected! Consider adjusting your strategy.")
-
-    # Profit Alert
+    # Profit alert
     if profit >= 5_000_000:
-        st.success("🎉 Profit target reached! You've earned more than Rp 5,000,000.")
+        st.success("🎉 You've reached over Rp 5.000.000 in profit!")
 
-    # Investment Timer (Estimated)
-    daily_avg = profit / len(df[df["Type"] == "profit"]) if len(df[df["Type"] == "profit"]) else 0
+    # Loss warning
+    if abs(withdraw) > top_up * 0.2:
+        st.error("⚠️ Withdrawal exceeds 20% of your top-up — risk warning.")
+
+    # Goal ETA
+    daily_profits = df[df["Type"] == "profit"]
+    daily_avg = profit / len(daily_profits) if not daily_profits.empty else 0
     if balance < TARGET_GOAL and daily_avg > 0:
-        remaining = TARGET_GOAL - balance
-        days_needed = remaining / daily_avg
+        days_needed = (TARGET_GOAL - balance) / daily_avg
         eta = datetime.now() + timedelta(days=int(days_needed))
-        st.info(f"⏱ Estimated time to reach your goal: {int(days_needed)} days (around {eta.date()})")
+        st.info(f"⏱ Estimated time to reach goal: {int(days_needed)} days → {eta.strftime('%Y-%m-%d')}")
 
-# ------------------ EARNINGS SIMULATOR ------------------
+# ------------------ SIMULATOR ------------------
 elif page == "Earnings Simulator":
     st.markdown("## 🧠 Earnings Simulator")
-    risk = st.radio("Select Strategy", ["Conservative (0.5%)", "Balanced (1.0%)", "Aggressive (1.5%)"])
-    rate = {"Conservative (0.5%)": 0.5, "Balanced (1.0%)": 1.0, "Aggressive (1.5%)": 1.5}[risk]
+    strategy = st.radio("Choose Strategy", ["Conservative (0.5%)", "Balanced (1.0%)", "Aggressive (1.5%)"])
+    daily_rate = {"Conservative (0.5%)": 0.5, "Balanced (1.0%)": 1.0, "Aggressive (1.5%)"}[strategy]
+
     col1, col2 = st.columns(2)
     topup = col1.number_input("Monthly Top-Up (Rp)", value=1_000_000, step=100_000)
     duration = col2.slider("Duration (months)", 1, 60, 12)
-    sim = simulate_growth(topup, rate, duration)
-    st.metric("📈 Final Balance", format_rp(sim[-1]))
-    df_sim = pd.DataFrame({"Day": list(range(1, len(sim)+1)), "Balance": sim})
+    sim_result = simulate_growth(topup, daily_rate, duration)
+    st.metric("📈 Final Balance", format_rp(sim_result[-1]))
+    df_sim = pd.DataFrame({"Day": list(range(1, len(sim_result)+1)), "Balance": sim_result})
     st.altair_chart(alt.Chart(df_sim).mark_area(opacity=0.5).encode(x="Day", y="Balance"), use_container_width=True)
 
 # ------------------ TRANSACTIONS ------------------
@@ -124,13 +128,11 @@ elif page == "Transactions":
             except Exception as e:
                 st.error(f"⚠️ {e}")
 
-    st.markdown("### 📋 Recent Transactions")
     df = load_google_sheet_csv()
     df["Amount"] = df["Amount"].apply(format_rp)
+    st.markdown("### 📋 Recent Transactions")
     st.dataframe(df[["Date", "Type", "Amount", "Note"]])
-
-    # Export
-    st.download_button("📤 Export to CSV", df.to_csv(index=False), file_name="transactions.csv")
+    st.download_button("📤 Export to CSV", df.to_csv(index=False), "transactions.csv")
 
 # ------------------ GOAL TRACKER ------------------
 elif page == "Goal Tracker":
@@ -148,16 +150,19 @@ elif page == "Goal Tracker":
 # ------------------ SETTINGS ------------------
 elif page == "Settings":
     st.markdown("## ⚙️ Settings")
+    st.warning("⚠️ Data is saved in Google Sheets. To reset, clear the sheet manually.")
+
     if st.button("🧠 Simulate Auto-Daily Profit (+1.5%)"):
+        df = load_google_sheet_csv()
+        current_balance = df[df["Type"] != "withdraw"]["Amount"].sum()
+        gain = int(current_balance * 0.015)
+        payload = {"type": "profit", "amount": gain, "note": "Simulated daily gain"}
         try:
-            today = datetime.now().strftime("%Y-%m-%d")
-            profit_val = int((load_google_sheet_csv()["Amount"].sum()) * 0.015)
-            payload = {"type": "profit", "amount": profit_val, "note": "Auto daily gain"}
             res = requests.post(GOOGLE_SCRIPT_URL, json=payload)
             if res.status_code == 200:
-                st.success("📅 Daily profit logged.")
+                st.success(f"📅 +{format_rp(gain)} profit added!")
                 load_google_sheet_csv.clear()
-        except:
-            st.error("⚠️ Failed to simulate daily log.")
-
-    st.warning("⚠️ To clear history, manually clear Google Sheets.")
+            else:
+                st.error("Failed to add profit.")
+        except Exception as e:
+            st.error(f"Error: {e}")
